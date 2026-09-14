@@ -1,0 +1,39 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+/* Fondo con degradado radial sutil — más profundidad que un flat color */
+body {
+  font-family: 'Nunito', sans-serif;
+  background: radial-gradient(ellipse at top, #1e293b 0%, #0f172a 70%);
+  min-height: 100vh;
+}
+
+/* ── Animaciones ─────────────────────────────────────────────────────── */
+
+/* Entrada de la pantalla de inicio */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Entrada de cada pregunta: desliza desde la derecha */
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(36px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-slide-in {
+  animation: slide-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Respeta las preferencias de movimiento reducido del sistema operativo */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up,
+  .animate-slide-in {
+    animation: none;
+  }
+}
