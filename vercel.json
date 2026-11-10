@@ -1,0 +1,5 @@
+{
+  "functions": {
+    "api/predecir.js": { "maxDuration": 60 }
+  }
+}
