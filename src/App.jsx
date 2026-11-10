@@ -1,16 +1,29 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { PREGUNTAS } from "./data/preguntas";
-import { obtenerResultado } from "./models/modelo";
+import { obtenerResultado, respuestasAVector } from "./models/modelo";
 import { analizarResultado } from "./logic/explication";
 import { generarParrafo, RASGO_LABELS } from "./logic/plantillas";
+import { consultarIA } from "./logic/predecirIA";
 import { RadarComparativo } from "./components/RadarComparativo";
+import { PantallaPensando } from "./components/PantallaPensando";
 import "./App.css";
 
 const FASES = {
   INICIO: "inicio",
   PREGUNTAS: "preguntas",
+  PENSANDO: "pensando",
   RESULTADO: "resultado",
 };
+
+// Resultado del algoritmo local (kNN), usado cuando la IA no responde.
+function resultadoDeRespaldo(respuestas) {
+  const { vector, resultados } = obtenerResultado(respuestas, PREGUNTAS, 3);
+  const { rasgoDecisivo, detalleRasgos, preguntasClave } = analizarResultado(
+    vector, resultados, respuestas, PREGUNTAS
+  );
+  const parrafo = generarParrafo(vector, resultados[0].pokemon, rasgoDecisivo, preguntasClave);
+  return { fuente: "respaldo", vector, resultados, rasgoDecisivo, detalleRasgos, preguntasClave, parrafo };
+}
 
 function obtenerImagen(id) {
   return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${id}.png`;
@@ -53,7 +66,8 @@ export default function App() {
   const [respuestas, setRespuestas] = useState([]);
   const [marcaIndice, setMarcaIndice] = useState(null);
   const [resultado, setResultado] = useState(null);
- 
+  const peticionRef = useRef(null);
+
   function empezar() {
     setFase(FASES.PREGUNTAS);
     setIndicePregunta(0);
@@ -75,19 +89,35 @@ export default function App() {
       setIndicePregunta(siguiente);
       setMarcaIndice(null);
     } else {
-      const { vector, resultados } = obtenerResultado(nuevasRespuestas, PREGUNTAS, 3);
-      const { rasgoDecisivo, detalleRasgos, preguntasClave } = analizarResultado(
-        vector, resultados, nuevasRespuestas, PREGUNTAS
-      );
-      const parrafo = generarParrafo(
-        vector, resultados[0].pokemon, rasgoDecisivo, preguntasClave
-      );
-      setResultado({ vector, resultados, rasgoDecisivo, detalleRasgos, preguntasClave, parrafo });
-      setFase(FASES.RESULTADO);
+      pedirResultado(nuevasRespuestas);
     }
   }
- 
+
+  async function pedirResultado(todasLasRespuestas) {
+    const controlador = new AbortController();
+    peticionRef.current = controlador;
+    setFase(FASES.PENSANDO);
+
+    let nuevo;
+    try {
+      const ia = await consultarIA(todasLasRespuestas, controlador.signal);
+      nuevo = {
+        ...ia,
+        fuente: "ia",
+        vector: respuestasAVector(todasLasRespuestas, PREGUNTAS),
+        rasgoDecisivo: null,
+      };
+    } catch (err) {
+      if (controlador.signal.aborted) return;
+      console.warn("IA no disponible, usando el algoritmo local:", err);
+      nuevo = resultadoDeRespaldo(todasLasRespuestas);
+    }
+    setResultado(nuevo);
+    setFase(FASES.RESULTADO);
+  }
+
   function reiniciar() {
+    peticionRef.current?.abort();
     setFase(FASES.INICIO);
     setIndicePregunta(0);
     setRespuestas([]);
@@ -205,6 +235,8 @@ export default function App() {
         </>
       )}
  
+      {fase === FASES.PENSANDO && <PantallaPensando />}
+
       {/* ════════════════════════════════════════════════════════════
           FASE: RESULTADO
           (placeholder — estilos definitivos en la próxima sesión)
@@ -229,12 +261,33 @@ export default function App() {
             {resultado.parrafo}
           </p>
  
-          <p className="text-slate-400 text-xs mb-6">
-            Rasgo clave:{" "}
-            <span className="text-yellow-400 font-bold">
-              {RASGO_LABELS[resultado.rasgoDecisivo]}
-            </span>
-          </p>
+          {resultado.rasgosUsuario?.length > 0 && (
+            <ul className="flex flex-wrap justify-center gap-2 mb-6">
+              {resultado.rasgosUsuario.map((rasgo) => (
+                <li
+                  key={rasgo}
+                  className="text-xs font-semibold text-yellow-300 bg-yellow-400/10 border border-yellow-400/40 rounded-full px-3 py-1"
+                >
+                  {rasgo}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {resultado.rasgoDecisivo && (
+            <p className="text-slate-400 text-xs mb-6">
+              Rasgo clave:{" "}
+              <span className="text-yellow-400 font-bold">
+                {RASGO_LABELS[resultado.rasgoDecisivo]}
+              </span>
+            </p>
+          )}
+
+          {resultado.fuente === "respaldo" && (
+            <p className="text-slate-500 text-xs mb-6">
+              No se pudo consultar a la IA; este resultado usa el algoritmo básico.
+            </p>
+          )}
  
           <RadarComparativo
             vectorUsuario={resultado.vector}

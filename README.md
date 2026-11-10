@@ -43,6 +43,16 @@ http://localhost:5173/
 
 Open it in your browser and you're ready to play.
 
+### Enable the AI result
+
+The final Pokémon is chosen by Claude through a serverless function (`api/predecir.js`), so the API key never reaches the browser. Without it the app still works, falling back to the local algorithm.
+
+1. Copy `.env.example` to `.env.local` and set `ANTHROPIC_API_KEY` (never use a `VITE_` prefix).
+2. Run `npm run dev`: the Vite dev server also serves `/api/predecir` locally, so the Vercel CLI is not needed.
+3. In production, set the same variable in the Vercel project settings.
+
+Useful scripts: `node scripts/alcanzabilidad.mjs` checks which Pokémon the fallback can reach, and `node --env-file=.env.local scripts/eval-ia.mjs` measures the diversity of the AI's answers (it calls the API).
+
 ### Build for production
 
 To create a production build:

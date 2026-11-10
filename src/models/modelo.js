@@ -1,47 +1,87 @@
-import { POKEMON_DATA } from "../data/pokemonData";
+import { POKEMON_DATA } from "../data/pokemonData.js";
 
 // Rasgos usados en todo el sistema, en este orden fijo
 export const RASGOS = ["AG", "SO", "EN", "RE", "CU"];
 
-// Rangos teoricos exactos (calculados sumando el mejor/peor caso posible
-// de cada opcion para cada rasgo, a lo largo de las 12 preguntas).
-// Sirven para normalizar la suma cruda de un usuario a escala 0-10,
-// la misma escala que usa la tabla de pokemon.
-const RANGOS = {
-  AG: { min: -11, max: 12 },
-  SO: { min: -13, max: 27 },
-  EN: { min: -10, max: 19 },
-  RE: { min: -12, max: 19 },
-  CU: { min: -6, max: 25 },
-};
+// Media y desviacion de cada rasgo, tanto para un usuario que contesta al azar
+// (cada opcion equiprobable, preguntas independientes) como para la tabla de pokemon.
+const cacheEstadisticas = new WeakMap();
+
+function estadisticasDe(preguntas) {
+  if (cacheEstadisticas.has(preguntas)) return cacheEstadisticas.get(preguntas);
+
+  const usuario = {};
+  for (const rasgo of RASGOS) {
+    let media = 0;
+    let varianza = 0;
+    for (const pregunta of preguntas) {
+      const valores = pregunta.opciones.map((o) => o.deltas[rasgo] ?? 0);
+      const m = valores.reduce((a, b) => a + b, 0) / valores.length;
+      media += m;
+      varianza += valores.reduce((a, v) => a + (v - m) ** 2, 0) / valores.length;
+    }
+    usuario[rasgo] = { media, sd: Math.sqrt(varianza) };
+  }
+
+  const tabla = {};
+  for (const rasgo of RASGOS) {
+    const valores = POKEMON_DATA.map((p) => p[rasgo]);
+    const media = valores.reduce((a, b) => a + b, 0) / valores.length;
+    const varianza = valores.reduce((a, v) => a + (v - media) ** 2, 0) / valores.length;
+    tabla[rasgo] = { media, sd: Math.sqrt(varianza) };
+  }
+
+  const resultado = { usuario, tabla };
+  cacheEstadisticas.set(preguntas, resultado);
+  return resultado;
+}
+
+/**
+ * Suma cruda de los deltas de las respuestas del usuario, sin normalizar.
+ *
+ * @param {number[]} indicesRespuestas - ej. [0,2,1,0,0,1,1,0,1,0,1,3]
+ * @param {Array} preguntas - el array PREGUNTAS importado de preguntas.js
+ */
+export function sumarRaw(indicesRespuestas, preguntas) {
+  const raw = { AG: 0, SO: 0, EN: 0, RE: 0, CU: 0 };
+  indicesRespuestas.forEach((idxOpcion, idxPregunta) => {
+    const deltas = preguntas[idxPregunta].opciones[idxOpcion].deltas;
+    for (const rasgo of RASGOS) {
+      if (deltas[rasgo]) raw[rasgo] += deltas[rasgo];
+    }
+  });
+  return raw;
+}
+
+/**
+ * Convierte la suma cruda en un vector 0-10 comparable con la tabla de pokemon.
+ *
+ * Un usuario que contesta al azar tiene sumas muy agrupadas alrededor del centro
+ * (muchas preguntas independientes), mientras que la tabla de pokemon tiene otra
+ * media y otra dispersion en cada rasgo. Escalar solo con los rangos teoricos deja
+ * a los usuarios en una zona que no cubre a todos los pokemon, asi que se
+ * estandariza cada rasgo respecto a la distribucion del usuario y se reescala a
+ * la media y desviacion de la tabla.
+ */
+export function normalizarRaw(raw, preguntas) {
+  const { usuario, tabla } = estadisticasDe(preguntas);
+  const normalizado = {};
+  for (const rasgo of RASGOS) {
+    const z = (raw[rasgo] - usuario[rasgo].media) / usuario[rasgo].sd;
+    const val = tabla[rasgo].media + z * tabla[rasgo].sd;
+    normalizado[rasgo] = Math.max(0, Math.min(10, val));
+  }
+  return normalizado;
+}
 
 /**
  * Convierte las respuestas del usuario (array de indices 0-3, uno por pregunta,
  * en el mismo orden que PREGUNTAS) en un vector de rasgos normalizado 0-10.
  *
- * @param {number[]} indicesRespuestas - ej. [0,2,1,0,0,1,1,0,1,0,1,3]
- * @param {Array} preguntas - el array PREGUNTAS importado de preguntas.js
  * @returns {Object} vector normalizado, ej. { AG: 7.2, SO: 3.1, EN: 6.0, RE: 4.4, CU: 5.8 }
  */
 export function respuestasAVector(indicesRespuestas, preguntas) {
-  const raw = { AG: 0, SO: 0, EN: 0, RE: 0, CU: 0 };
-
-  indicesRespuestas.forEach((idxOpcion, idxPregunta) => {
-    const opcion = preguntas[idxPregunta].opciones[idxOpcion];
-    const deltas = opcion.deltas;
-    for (const rasgo of RASGOS) {
-      if (deltas[rasgo]) raw[rasgo] += deltas[rasgo];
-    }
-  });
-
-  // Normalizar cada rasgo a escala 0-10 usando los rangos teoricos
-  const normalizado = {};
-  for (const rasgo of RASGOS) {
-    const { min, max } = RANGOS[rasgo];
-    const val = ((raw[rasgo] - min) / (max - min)) * 10;
-    normalizado[rasgo] = Math.max(0, Math.min(10, val));
-  }
-  return normalizado;
+  return normalizarRaw(sumarRaw(indicesRespuestas, preguntas), preguntas);
 }
 
 /**
